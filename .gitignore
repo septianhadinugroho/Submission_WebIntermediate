@@ -1,0 +1,35 @@
+# Node modules
+node_modules/
+
+# Build output
+dist/
+
+# Local environment variables
+.env
+.env.local
+.env.*.local
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Log files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Optional VS Code settings
+.vscode/
+
+# Netlify folder (if used)
+.netlify/
+
+# OS-specific
+*.swp
+*.swo
+
+# Optional: ignore lock file if you use only one package manager
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
