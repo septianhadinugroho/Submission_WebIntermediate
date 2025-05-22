@@ -3,7 +3,7 @@ import { addStory } from '../services/api.js';
 import MapComponent from '../components/MapComponent.js';
 import { showToast } from '../utils/helpers.js';
 import { navigateTo } from '../utils/router.js';
-import { triggerNotification } from '../services/notification.js';
+import { triggerNotification, checkNotificationPermission, requestNotificationPermission } from '../services/notification.js';
 import StoryModel from '../models/StoryModel.js';
 
 class AddStoryPresenter {
@@ -124,7 +124,18 @@ class AddStoryPresenter {
           console.log('Online: Attempting to submit story to API');
           await addStory(formData);
           showToast('Story added successfully!', 'success');
-          await triggerNotification('New Story Added', 'Your story has been successfully shared!');
+          
+          // Check and request notification permission if needed
+          const hasPermission = await checkNotificationPermission();
+          if (!hasPermission) {
+            await requestNotificationPermission();
+          }
+          
+          // Send success notification
+          await triggerNotification(
+            'New Story Added', 
+            'Your story has been successfully shared!'
+          );
         } catch (onlineError) {
           console.error('Online submission failed, falling back to offline:', onlineError);
           await this.handleOfflineSubmission(formData, tempId);
@@ -151,7 +162,12 @@ class AddStoryPresenter {
     offlineFormData.append('id', tempId);
     await StoryModel.saveAndQueueStory(offlineFormData);
     showToast('Story queued for submission when online!', 'success');
-    await triggerNotification('Story Queued', 'Your story will be submitted when you’re back online!');
+    
+    // Send offline notification
+    await triggerNotification(
+      'Story Queued', 
+      'Your story will be submitted when you\'re back online!'
+    );
   }
 
   destroy() {

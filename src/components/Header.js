@@ -1,12 +1,12 @@
 import { navigateTo } from '../utils/router.js';
 import { logout } from '../services/auth.js';
 import { showToast } from '../utils/helpers.js';
-import { subscribeToNotifications } from '../services/notification.js';
+import { subscribeToNotifications, checkNotificationPermission } from '../services/notification.js';
 
 class Header {
   constructor() {
     this.isAuthenticated = false;
-    this.isSubscribed = localStorage.getItem('notificationSubscribed') === 'true';
+    this.isSubscribed = false; // Initialize as false, will check actual status in afterRender
     this.handleLogout = this.handleLogout.bind(this);
     this.handleSubscribe = this.handleSubscribe.bind(this);
   }
@@ -34,8 +34,8 @@ class Header {
             ${this.isAuthenticated 
               ? `
                 <div class="auth-buttons">
-                  <button type="button" class="btn btn-primary btn-sm" id="notification-btn" ${this.isSubscribed ? 'disabled' : ''}>
-                    Enable Notifications
+                  <button type="button" class="btn btn-primary btn-sm" id="notification-btn">
+                    ${this.isSubscribed ? 'Notifications Enabled' : 'Enable Notifications'}
                   </button>
                   <button type="button" class="btn btn-danger btn-sm" id="logout-btn">Logout</button>
                 </div>
@@ -54,6 +54,11 @@ class Header {
   }
 
   async afterRender() {
+    // Check notification permission and subscription status
+    if (this.isAuthenticated) {
+      await this.checkSubscriptionStatus();
+    }
+
     const logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) {
       logoutBtn.addEventListener('click', this.handleLogout);
@@ -63,6 +68,9 @@ class Header {
     if (notificationBtn) {
       console.log('Notification button found, attaching event listener');
       notificationBtn.addEventListener('click', this.handleSubscribe);
+      // Update button state based on actual subscription status
+      notificationBtn.textContent = this.isSubscribed ? 'Notifications Enabled' : 'Enable Notifications';
+      notificationBtn.disabled = this.isSubscribed;
     } else {
       console.warn('Notification button not found');
     }
@@ -74,6 +82,30 @@ class Header {
       hamburger.addEventListener('click', () => {
         navLinks.classList.toggle('active');
       });
+    }
+  }
+
+  async checkSubscriptionStatus() {
+    try {
+      // Check if notifications are supported
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        this.isSubscribed = false;
+        return;
+      }
+
+      // Check permission and subscription
+      const hasPermission = await checkNotificationPermission();
+      if (!hasPermission) {
+        this.isSubscribed = false;
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      this.isSubscribed = !!subscription;
+    } catch (error) {
+      console.error('Error checking subscription status:', error);
+      this.isSubscribed = false;
     }
   }
 
@@ -101,8 +133,11 @@ class Header {
       const success = await subscribeToNotifications();
       if (success) {
         this.isSubscribed = true;
-        localStorage.setItem('notificationSubscribed', 'true');
-        document.getElementById('notification-btn').setAttribute('disabled', 'true');
+        const notificationBtn = document.getElementById('notification-btn');
+        if (notificationBtn) {
+          notificationBtn.textContent = 'Notifications Enabled';
+          notificationBtn.disabled = true;
+        }
         showToast('Notifications enabled!', 'success');
       } else {
         showToast('Failed to enable notifications', 'error');

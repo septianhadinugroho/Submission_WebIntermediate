@@ -5,6 +5,12 @@ export default defineConfig({
   server: {
     port: 3005,
   },
+  preview: {
+    port: 4173,
+    mimeTypes: {
+      'js': 'application/javascript',
+    },
+  },
   css: {
     devSourcemap: true,
   },
@@ -14,6 +20,16 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: './index.html',
+      },
+      output: {
+        entryFileNames: '[name].js',
+        chunkFileNames: 'assets/[name].js',
+        assetFileNames: ({ name }) => {
+          if (name === 'sw.js') {
+            return '[name].[ext]';
+          }
+          return 'assets/[name].[ext]';
+        },
       },
     },
   },

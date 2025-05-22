@@ -4,15 +4,20 @@ import { openDB } from 'idb';
 const DB_NAME = 'story-app';
 const STORE_NAME = 'stories';
 const QUEUE_STORE_NAME = 'story-queue';
+const IMAGE_STORE_NAME = 'cached-images';
 
 async function initDB() {
-  return openDB(DB_NAME, 1, {
-    upgrade(db) {
+  return openDB(DB_NAME, 2, {
+    upgrade(db, oldVersion) {
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: 'id' });
       }
       if (!db.objectStoreNames.contains(QUEUE_STORE_NAME)) {
         db.createObjectStore(QUEUE_STORE_NAME, { autoIncrement: true });
+      }
+      // Add image store for offline image caching
+      if (oldVersion < 2 && !db.objectStoreNames.contains(IMAGE_STORE_NAME)) {
+        db.createObjectStore(IMAGE_STORE_NAME, { keyPath: 'url' });
       }
     },
   });
@@ -23,9 +28,26 @@ const StoryModel = {
     try {
       const stories = await getStories();
       console.log('Mengambil story online:', stories.length);
+      
       const db = await initDB();
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      await Promise.all(stories.map((story) => tx.store.put({ ...story, isOffline: false })));
+      const tx = db.transaction([STORE_NAME, IMAGE_STORE_NAME], 'readwrite');
+      const storiesStore = tx.objectStore(STORE_NAME);
+      const imageStore = tx.objectStore(IMAGE_STORE_NAME);
+      
+      // Save stories and cache their images
+      await Promise.all(stories.map(async (story) => {
+        await storiesStore.put({ ...story, isOffline: false });
+        
+        // Cache image for offline use
+        if (story.photoUrl && !story.photoUrl.startsWith('data:')) {
+          try {
+            await this.cacheImageForOffline(story.photoUrl, imageStore);
+          } catch (error) {
+            console.warn('Failed to cache image for story:', story.id, error);
+          }
+        }
+      }));
+      
       await tx.done;
       return stories;
     } catch (error) {
@@ -38,8 +60,21 @@ const StoryModel = {
     try {
       const story = await getStoryDetail(id);
       const db = await initDB();
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      await tx.store.put({ ...story, isOffline: false });
+      const tx = db.transaction([STORE_NAME, IMAGE_STORE_NAME], 'readwrite');
+      const storiesStore = tx.objectStore(STORE_NAME);
+      const imageStore = tx.objectStore(IMAGE_STORE_NAME);
+      
+      await storiesStore.put({ ...story, isOffline: false });
+      
+      // Cache image for offline use
+      if (story.photoUrl && !story.photoUrl.startsWith('data:')) {
+        try {
+          await this.cacheImageForOffline(story.photoUrl, imageStore);
+        } catch (error) {
+          console.warn('Failed to cache image for story detail:', story.id, error);
+        }
+      }
+      
       await tx.done;
       return story;
     } catch (error) {
@@ -48,6 +83,13 @@ const StoryModel = {
       const story = await db.get(STORE_NAME, id);
       if (story) {
         console.log('Mengambil story offline:', id);
+        
+        // Check if we have cached image data
+        const cachedImage = await db.get(IMAGE_STORE_NAME, story.photoUrl);
+        if (cachedImage && cachedImage.data) {
+          story.photoUrl = cachedImage.data;
+        }
+        
         return story;
       }
       throw new Error('Story tidak ditemukan di penyimpanan offline');
@@ -57,7 +99,26 @@ const StoryModel = {
   async getAllStoriesOffline() {
     try {
       const db = await initDB();
-      const stories = await db.getAll(STORE_NAME);
+      const tx = db.transaction([STORE_NAME, IMAGE_STORE_NAME], 'readonly');
+      const storiesStore = tx.objectStore(STORE_NAME);
+      const imageStore = tx.objectStore(IMAGE_STORE_NAME);
+      
+      const stories = await storiesStore.getAll();
+      
+      // Replace online image URLs with cached base64 data when offline
+      if (!navigator.onLine) {
+        for (const story of stories) {
+          if (story.photoUrl && !story.photoUrl.startsWith('data:')) {
+            const cachedImage = await imageStore.get(story.photoUrl);
+            if (cachedImage && cachedImage.data) {
+              story.photoUrl = cachedImage.data;
+            } else {
+              story.photoUrl = '/placeholder.png';
+            }
+          }
+        }
+      }
+      
       console.log('Mengambil semua story offline:', stories.length);
       return stories || [];
     } catch (error) {
@@ -76,6 +137,40 @@ const StoryModel = {
     } catch (error) {
       console.error('Gagal mengambil story offline lokal:', error);
       return [];
+    }
+  },
+
+  async cacheImageForOffline(imageUrl, imageStore) {
+    if (!imageUrl || imageUrl.startsWith('data:') || imageUrl.startsWith('blob:')) {
+      return;
+    }
+
+    try {
+      // Check if already cached
+      const existing = await imageStore.get(imageUrl);
+      if (existing) {
+        return;
+      }
+
+      // Fetch and convert to base64
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const base64 = await this.blobToBase64(blob);
+
+      // Store in IndexedDB
+      await imageStore.put({
+        url: imageUrl,
+        data: base64,
+        timestamp: Date.now()
+      });
+
+      console.log('Image cached for offline use:', imageUrl);
+    } catch (error) {
+      console.warn('Failed to cache image:', imageUrl, error);
     }
   },
 
@@ -113,8 +208,8 @@ const StoryModel = {
       const savePromise = storiesStore.put(storyData);
 
       console.log('Mengantri story:', queueData);
-      const queueKey = await queueStore.add(queueData); // Simpan kunci auto-increment
-      queueData.id = queueKey; // Tambahkan kunci ke queueData
+      const queueKey = await queueStore.add(queueData);
+      queueData.id = queueKey;
 
       await Promise.all([savePromise]);
       await tx.done;
@@ -133,7 +228,7 @@ const StoryModel = {
       console.log('Mengambil story antrian:', stories.length);
       return stories.map((story) => ({
         ...story,
-        id: story.id || story.key, // Gunakan key dari IndexedDB jika id tidak ada
+        id: story.id || story.key,
       }));
     } catch (error) {
       console.error('Gagal mengambil story antrian:', error);
@@ -210,11 +305,9 @@ const StoryModel = {
       const storiesStore = tx.objectStore(STORE_NAME);
       const queueStore = tx.objectStore(QUEUE_STORE_NAME);
 
-      // Hapus dari stories
       await storiesStore.delete(id);
       console.log('Menghapus story dari stories:', id);
 
-      // Cari dan hapus entri di story-queue dengan tempId yang sama
       const queuedStories = await queueStore.getAll();
       const deletePromises = [];
       for (const queuedStory of queuedStories) {
@@ -236,10 +329,11 @@ const StoryModel = {
   async clearAllStories() {
     try {
       const db = await initDB();
-      const tx = db.transaction([STORE_NAME, QUEUE_STORE_NAME], 'readwrite');
+      const tx = db.transaction([STORE_NAME, QUEUE_STORE_NAME, IMAGE_STORE_NAME], 'readwrite');
       await tx.objectStore(STORE_NAME).clear();
       await tx.objectStore(QUEUE_STORE_NAME).clear();
-      console.log('Menghapus semua story dan antrian');
+      await tx.objectStore(IMAGE_STORE_NAME).clear();
+      console.log('Menghapus semua story, antrian, dan cache gambar');
       await tx.done;
     } catch (error) {
       console.error('Gagal menghapus semua story:', error);

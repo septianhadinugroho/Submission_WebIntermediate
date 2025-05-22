@@ -1,35 +1,45 @@
-import { injectManifest } from 'workbox-build';
+import fs from 'fs';
+import path from 'path';
 
-const manifestEntries = [
-  { url: '/', revision: '1' },
-  { url: '/index.html', revision: '1' },
-  { url: '/favicon.png', revision: '1' },
-  { url: '/logo.png', revision: '1' },
-  { url: '/manifest.json', revision: '1' },
-  { url: '/placeholder.png', revision: '1' },
-  { url: '/marker-icon-2x.png', revision: '2' },
-  { url: '/marker-icon.png', revision: '2' },
-  { url: '/marker-shadow.png', revision: '2' },
-  { url: '/layers-2x.png', revision: '1' },
-  { url: '/layers.png', revision: '1' },
-];
+// Simple script to copy service worker to dist folder
+const swSrc = 'public/sw.js';
+const swDest = 'dist/sw.js';
 
-injectManifest({
-  swSrc: 'public/sw.js',
-  swDest: 'dist/sw.js',
-  globDirectory: 'dist',
-  globPatterns: ['**/*.{html,js,css,png,jpg,svg,ico,json}'],
-  globIgnores: ['sw.js', '**/sw.js'],
-  additionalManifestEntries: manifestEntries,
-  maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5MB
-})
-  .then(({ count, size, warnings }) => {
-    if (warnings.length > 0) {
-      console.warn('Peringatan saat injeksi manifest:', warnings);
+async function copyServiceWorker() {
+  try {
+    console.log('Copying Service Worker...');
+    
+    // Check if source file exists
+    if (!fs.existsSync(swSrc)) {
+      console.error(`❌ Source SW file not found: ${swSrc}`);
+      process.exit(1);
     }
-    console.log(`Service worker dihasilkan dengan ${count} file precache, total ${size} bytes.`);
-  })
-  .catch((err) => {
-    console.error('Gagal menghasilkan service worker:', err);
+    
+    // Ensure dist directory exists
+    const distDir = path.dirname(swDest);
+    if (!fs.existsSync(distDir)) {
+      fs.mkdirSync(distDir, { recursive: true });
+    }
+    
+    // Copy the service worker file
+    fs.copyFileSync(swSrc, swDest);
+    
+    // Verify the copy was successful
+    if (fs.existsSync(swDest)) {
+      const stats = fs.statSync(swDest);
+      console.log(`✓ Service worker copied successfully!`);
+      console.log(`  - Source: ${swSrc}`);
+      console.log(`  - Destination: ${swDest}`);
+      console.log(`  - Size: ${(stats.size / 1024).toFixed(2)} KB`);
+    } else {
+      throw new Error('Failed to copy service worker file');
+    }
+
+  } catch (error) {
+    console.error('❌ Failed to copy service worker:', error.message);
     process.exit(1);
-  });
+  }
+}
+
+// Run the copy operation
+copyServiceWorker();

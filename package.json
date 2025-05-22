@@ -1,22 +1,26 @@
 {
   "name": "dicoding-story-app",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build && node generate-sw.js",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "serve": "vite preview",
+    "generate-sw": "node generate-sw.js",
+    "clean": "rm -rf dist"
   },
   "dependencies": {
     "dicoding-story-app": "file:",
     "idb": "^7.0.2",
     "leaflet": "^1.9.4",
+    "workbox-sw": "^7.1.0",
     "workbox-window": "^7.1.0"
   },
   "devDependencies": {
-    "vite": "^4.4.9",
-    "workbox-build": "^7.1.1",
+    "vite": "^6.3.5",
+    "workbox-build": "^7.1.0",
     "workbox-cli": "^7.1.0"
   }
 }
