@@ -153,6 +153,7 @@ async function handleImageRequest(request) {
     });
   }
 }
+
 // Handle API requests with network-first strategy
 async function handleAPIRequest(request) {
   try {
@@ -270,38 +271,36 @@ function isStaticResource(url) {
   return staticExtensions.some(ext => url.includes(ext));
 }
 
-// In the push event handler in sw.js
+// Handle push notifications - FIXED VERSION
 self.addEventListener('push', (event) => {
   console.log('Service Worker: Push event received');
   
-  // Don't proceed if permission isn't granted
-  event.waitUntil(
-    Notification.permission === 'granted'.then((permission) => {
-      if (permission !== 'granted') {
-        console.log('No notification permission, skipping push');
-        return;
-      }
-      
-      let data = { 
-        title: 'New Notification', 
-        body: 'Something new happened!' 
-      };
-      
-      if (event.data) {
-        try {
-          data = event.data.json();
-        } catch (error) {
-          console.error('Service Worker: Failed to parse push data:', error);
-        }
-      }
+  // Check permission first
+  if (Notification.permission !== 'granted') {
+    console.log('No notification permission, skipping push');
+    return;
+  }
+  
+  let data = { 
+    title: 'New Notification', 
+    body: 'Something new happened!' 
+  };
+  
+  if (event.data) {
+    try {
+      data = event.data.json();
+    } catch (error) {
+      console.error('Service Worker: Failed to parse push data:', error);
+    }
+  }
 
-      return self.registration.showNotification(data.title, {
-        body: data.body,
-        icon: '/logo.png',
-        badge: '/favicon.png',
-      }).catch((error) => {
-        console.error('Service Worker: Failed to show notification:', error);
-      });
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: '/logo.png',
+      badge: '/favicon.png',
+    }).catch((error) => {
+      console.error('Service Worker: Failed to show notification:', error);
     })
   );
 });
